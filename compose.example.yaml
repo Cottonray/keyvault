@@ -1,0 +1,40 @@
+# Example deployment. Copy next to a `.env` with DB_PASSWORD and PUBLIC_ORIGIN, and a
+# `master.key` created with `docker run --rm keyvault keygen > master.key && chmod 600 master.key`.
+#
+# Put an SSO reverse proxy in front that (1) authenticates people on every path except /v1/,
+# (2) sets USER_HEADER to the signed-in user on those paths, and (3) strips USER_HEADER on /v1/.
+# Do not publish the keyvault port anywhere the proxy is not the only client.
+services:
+  keyvault:
+    build: .
+    restart: unless-stopped
+    depends_on:
+      db: { condition: service_healthy }
+    environment:
+      DATABASE_URL: postgres://keyvault:${DB_PASSWORD:?}@db:5432/keyvault
+      MASTER_KEY_FILE: /run/keyvault/master.key
+      PUBLIC_ORIGIN: ${PUBLIC_ORIGIN:?}
+      USER_HEADER: x-keyvault-user
+    volumes:
+      - ./master.key:/run/keyvault/master.key:ro
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    mem_limit: 128m
+
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: keyvault
+      POSTGRES_PASSWORD: ${DB_PASSWORD:?}
+      POSTGRES_DB: keyvault
+    volumes: [db:/var/lib/postgresql/data]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U keyvault"]
+      interval: 3s
+      retries: 20
+    mem_limit: 256m
+
+volumes:
+  db:

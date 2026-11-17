@@ -1,0 +1,196 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Keyvault</title>
+<style>
+  :root { --bg:#f6f7f9; --panel:#fff; --line:#e3e6ea; --text:#1c2026; --muted:#69717c; --accent:#2457d6; --danger:#c62b2b; --mono:ui-monospace,SFMono-Regular,Menlo,monospace; }
+  @media (prefers-color-scheme: dark) { :root { --bg:#111317; --panel:#1a1d22; --line:#2b3038; --text:#e7eaee; --muted:#9aa3ae; --accent:#6f9bff; --danger:#ff6b6b; } }
+  * { box-sizing: border-box; }
+  body { margin:0; font:14px/1.45 system-ui,-apple-system,"Segoe UI",sans-serif; background:var(--bg); color:var(--text); }
+  header { display:flex; align-items:center; gap:16px; padding:12px 16px; border-bottom:1px solid var(--line); background:var(--panel); position:sticky; top:0; z-index:2; }
+  header h1 { font-size:16px; margin:0; }
+  nav { display:flex; gap:4px; }
+  nav button { background:none; border:0; padding:6px 10px; border-radius:6px; color:var(--muted); cursor:pointer; font:inherit; }
+  nav button.on { background:var(--bg); color:var(--text); font-weight:600; }
+  #me { margin-left:auto; color:var(--muted); font-size:13px; }
+  main { display:grid; grid-template-columns:260px 1fr; gap:16px; padding:16px; max-width:1200px; margin:0 auto; }
+  @media (max-width: 720px) { main { grid-template-columns:1fr; } }
+  .panel { background:var(--panel); border:1px solid var(--line); border-radius:10px; padding:12px; min-width:0; }
+  .paths a { display:block; padding:7px 8px; border-radius:6px; color:var(--text); text-decoration:none; font-family:var(--mono); font-size:13px; overflow-wrap:anywhere; }
+  .paths a.on { background:var(--bg); font-weight:600; }
+  .paths small { color:var(--muted); font-family:system-ui; }
+  table { width:100%; border-collapse:collapse; }
+  th, td { text-align:left; padding:8px 6px; border-bottom:1px solid var(--line); vertical-align:top; }
+  th { color:var(--muted); font-weight:500; font-size:12px; }
+  td.k { font-family:var(--mono); font-size:13px; overflow-wrap:anywhere; }
+  td.v { font-family:var(--mono); font-size:13px; overflow-wrap:anywhere; max-width:420px; }
+  td.meta { color:var(--muted); font-size:12px; white-space:nowrap; }
+  .row { display:flex; gap:8px; flex-wrap:wrap; align-items:center; }
+  button.b, a.b { border:1px solid var(--line); background:var(--panel); color:var(--text); border-radius:6px; padding:5px 10px; cursor:pointer; font:inherit; font-size:13px; text-decoration:none; }
+  button.primary { background:var(--accent); border-color:var(--accent); color:#fff; }
+  button.danger { color:var(--danger); }
+  input, textarea, select { font:inherit; color:var(--text); background:var(--bg); border:1px solid var(--line); border-radius:6px; padding:6px 8px; }
+  textarea { width:100%; min-height:140px; font-family:var(--mono); font-size:13px; }
+  h2 { font-size:15px; margin:0 0 10px; }
+  .muted { color:var(--muted); }
+  .note { padding:10px; border-radius:6px; background:var(--bg); font-family:var(--mono); font-size:13px; overflow-wrap:anywhere; }
+  .actions { display:flex; gap:4px; flex-wrap:wrap; }
+  #toast { position:fixed; bottom:16px; left:50%; transform:translateX(-50%); background:var(--text); color:var(--bg); padding:8px 14px; border-radius:8px; display:none; }
+  [hidden] { display:none !important; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Keyvault</h1>
+  <nav><button data-tab="secrets" class="on">Secrets</button><button data-tab="tokens">Tokens</button><button data-tab="audit">Audit</button></nav>
+  <span id="me"></span>
+</header>
+
+<main id="secrets">
+  <section class="panel paths">
+    <div class="row" style="margin-bottom:8px"><input id="newPath" placeholder="deploy/app/.env" style="flex:1;min-width:0"><button class="b" id="openPath">Open</button></div>
+    <div id="pathList"></div>
+  </section>
+  <section class="panel">
+    <div id="empty" class="muted">Pick a path, or type one to create it.</div>
+    <div id="detail" hidden>
+      <div class="row" style="justify-content:space-between;margin-bottom:10px">
+        <h2 id="title" style="font-family:var(--mono);overflow-wrap:anywhere"></h2>
+        <div class="row"><a class="b" id="export" download=".env">Download .env</a></div>
+      </div>
+      <table><thead><tr><th>Key</th><th>Value</th><th>Updated</th><th></th></tr></thead><tbody id="keys"></tbody></table>
+      <h2 style="margin-top:20px">Add or update</h2>
+      <div class="row"><input id="k" placeholder="KEY_NAME"><input id="v" placeholder="value" style="flex:1;min-width:160px"><button class="b primary" id="save">Save</button></div>
+      <h2 style="margin-top:20px">Paste a .env</h2>
+      <textarea id="paste" placeholder="KEY=value&#10;OTHER=value"></textarea>
+      <div class="row" style="margin-top:8px"><label class="row"><input type="checkbox" id="replace"> remove keys not in the text</label><button class="b primary" id="import">Import</button></div>
+    </div>
+  </section>
+</main>
+
+<main id="tokens" hidden style="grid-template-columns:1fr">
+  <section class="panel">
+    <h2>Machine tokens</h2>
+    <p class="muted">Scripts read and write with <code>Authorization: Bearer kv_…</code> on <code>/v1/</code>. Scope <code>*</code> is everything, <code>dir/</code> is everything below it, otherwise one path.</p>
+    <div class="row"><input id="tName" placeholder="name"><input id="tScope" placeholder="scope (e.g. deploy/)"><label class="row"><input type="checkbox" id="tWrite"> write</label><button class="b primary" id="tCreate">Create</button></div>
+    <div id="tNew" class="note" hidden style="margin-top:10px"></div>
+    <table style="margin-top:12px"><thead><tr><th>Name</th><th>Scope</th><th>Access</th><th>Last used</th><th></th></tr></thead><tbody id="tList"></tbody></table>
+  </section>
+</main>
+
+<main id="audit" hidden style="grid-template-columns:1fr">
+  <section class="panel">
+    <h2>Audit log</h2>
+    <table><thead><tr><th>When</th><th>Who</th><th>Action</th><th>Path</th><th>Key</th><th>Detail</th></tr></thead><tbody id="aList"></tbody></table>
+  </section>
+</main>
+<div id="toast"></div>
+
+<script>
+const $ = s => document.querySelector(s);
+const el = (tag, props = {}, ...kids) => { const e = document.createElement(tag); Object.assign(e, props); e.append(...kids); return e; };
+const when = t => t ? new Date(t).toLocaleString() : '—';
+let current = null;
+
+async function api(method, path, body) {
+  const res = await fetch('/ui/api' + path, {
+    method, headers: method === 'GET' ? {} : { 'content-type': 'application/json', 'x-keyvault-request': '1' },
+    body: method === 'GET' ? undefined : JSON.stringify(body ?? {}),
+  });
+  const type = res.headers.get('content-type') || '';
+  const data = type.includes('json') ? await res.json() : await res.text();
+  if (!res.ok) throw new Error(data.error || res.statusText);
+  return data;
+}
+function toast(msg) { const t = $('#toast'); t.textContent = msg; t.style.display = 'block'; clearTimeout(t._h); t._h = setTimeout(() => t.style.display = 'none', 2200); }
+const guard = fn => async (...a) => { try { await fn(...a); } catch (e) { toast(e.message); } };
+
+async function loadPaths() {
+  const list = await api('GET', '/paths');
+  $('#pathList').replaceChildren(...list.map(p => {
+    const a = el('a', { href: '#' + encodeURIComponent(p.path), className: p.path === current ? 'on' : '' }, p.path, el('br'), el('small', {}, `${p.keys.length} keys · ${when(p.updated_at)}`));
+    return a;
+  }));
+  if (!list.length) $('#pathList').append(el('p', { className: 'muted' }, 'Empty vault.'));
+}
+
+async function openPath(path) {
+  current = path;
+  $('#empty').hidden = true; $('#detail').hidden = false;
+  $('#title').textContent = path;
+  $('#export').href = '/ui/api/export?path=' + encodeURIComponent(path);
+  const rows = await api('GET', '/secrets?path=' + encodeURIComponent(path));
+  $('#keys').replaceChildren(...rows.map(r => {
+    const v = el('td', { className: 'v' }, '••••••••');
+    const reveal = el('button', { className: 'b', textContent: 'Show' });
+    reveal.onclick = guard(async () => {
+      if (reveal.textContent === 'Hide') { v.textContent = '••••••••'; reveal.textContent = 'Show'; return; }
+      v.textContent = (await api('POST', '/reveal', { path, key: r.key })).value; reveal.textContent = 'Hide';
+    });
+    const copy = el('button', { className: 'b', textContent: 'Copy' });
+    copy.onclick = guard(async () => { await navigator.clipboard.writeText((await api('POST', '/reveal', { path, key: r.key })).value); toast('Copied ' + r.key); });
+    const edit = el('button', { className: 'b', textContent: 'Edit' });
+    edit.onclick = () => { $('#k').value = r.key; $('#v').value = ''; $('#v').focus(); };
+    const del = el('button', { className: 'b danger', textContent: 'Delete' });
+    del.onclick = guard(async () => {
+      if (!confirm(`Delete ${r.key} from ${path}?\nThe old value stays in history.`)) return;
+      await api('DELETE', '/secret', { path, key: r.key }); toast('Deleted ' + r.key); await refresh();
+    });
+    return el('tr', {}, el('td', { className: 'k' }, r.key), v, el('td', { className: 'meta' }, `v${r.version} · ${when(r.updated_at)}`, el('br'), r.updated_by), el('td', {}, el('div', { className: 'actions' }, reveal, copy, edit, del)));
+  }));
+  if (!rows.length) $('#keys').append(el('tr', {}, el('td', { colSpan: 4, className: 'muted' }, 'No keys yet.')));
+  await loadPaths();
+}
+const refresh = () => openPath(current);
+
+window.addEventListener('hashchange', guard(() => location.hash.length > 1 && openPath(decodeURIComponent(location.hash.slice(1)))));
+$('#openPath').onclick = () => { const p = $('#newPath').value.trim(); if (p) location.hash = encodeURIComponent(p); };
+$('#save').onclick = guard(async () => {
+  const key = $('#k').value.trim(); if (!key) return;
+  const r = await api('PUT', '/secret', { path: current, key, value: $('#v').value });
+  $('#k').value = ''; $('#v').value = ''; toast(`${r.result === 'create' ? 'Added' : 'Updated'} ${key}`); await refresh();
+});
+$('#import').onclick = guard(async () => {
+  const replace = $('#replace').checked;
+  if (replace && !confirm('Keys missing from the text will be deleted. Continue?')) return;
+  const r = await api('POST', '/import', { path: current, text: $('#paste').value, replace });
+  $('#paste').value = ''; toast(`created ${r.created} · updated ${r.updated} · same ${r.unchanged} · removed ${r.removed}`); await refresh();
+});
+
+async function loadTokens() {
+  const list = await api('GET', '/tokens');
+  $('#tList').replaceChildren(...list.map(t => {
+    const revoke = el('button', { className: 'b danger', textContent: 'Revoke', disabled: !!t.revoked_at });
+    revoke.onclick = guard(async () => { if (!confirm(`Revoke token ${t.name}? Scripts using it stop working.`)) return; await api('DELETE', '/tokens/' + t.id); await loadTokens(); });
+    return el('tr', {}, el('td', { className: 'k' }, t.name), el('td', { className: 'k' }, t.scope), el('td', {}, t.revoked_at ? 'revoked' : t.can_write ? 'read + write' : 'read'), el('td', { className: 'meta' }, when(t.last_used_at)), el('td', {}, revoke));
+  }));
+}
+$('#tCreate').onclick = guard(async () => {
+  const r = await api('POST', '/tokens', { name: $('#tName').value.trim(), scope: $('#tScope').value.trim(), can_write: $('#tWrite').checked });
+  const box = $('#tNew'); box.hidden = false;
+  box.replaceChildren('Copy this token now — it is not shown again:', el('br'), el('strong', {}, r.token));
+  $('#tName').value = ''; $('#tScope').value = ''; await loadTokens();
+});
+
+async function loadAudit() {
+  const list = await api('GET', '/audit');
+  $('#aList').replaceChildren(...list.map(a => el('tr', {}, el('td', { className: 'meta' }, when(a.at)), el('td', {}, a.actor), el('td', {}, a.action), el('td', { className: 'k' }, a.path || ''), el('td', { className: 'k' }, a.key || ''), el('td', { className: 'meta' }, a.detail || ''))));
+}
+
+document.querySelectorAll('nav button').forEach(b => b.onclick = guard(async () => {
+  document.querySelectorAll('nav button').forEach(x => x.classList.toggle('on', x === b));
+  for (const id of ['secrets', 'tokens', 'audit']) $('#' + id).hidden = id !== b.dataset.tab;
+  if (b.dataset.tab === 'tokens') await loadTokens();
+  if (b.dataset.tab === 'audit') await loadAudit();
+}));
+
+guard(async () => {
+  $('#me').textContent = (await api('GET', '/me')).user;
+  await loadPaths();
+  if (location.hash.length > 1) await openPath(decodeURIComponent(location.hash.slice(1)));
+})();
+</script>
+</body>
+</html>
